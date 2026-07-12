@@ -921,6 +921,12 @@ profile 应使用该 source support 的 wedge、supra-horizon buffer 和 30--250
 范围，horizon profile 只作为压力测试。真实 SKA 观测则必须使用 full-sky phase-tracking
 horizon line。slope-0 mask 只能称为简化 evaluation window。
 
+逐-mode 审计还显示，patch+buffer+UV 物理边界内含 10.0647% 的 active dirty-EoR
+power，但当前粗网格的严格 `all_modes` 整-bin策略只保留 5.3536%。最低两个
+$k_\perp$ partial bins 各有 88.89% 模式满足窗口，不能因少数跨界模式而永久删除。
+正式 quadratic estimator 必须在 band aggregation 前应用 mode mask，或重分箱使边界
+对齐；在此之前，`all_modes` 只作为保守兼容口径。horizon stress profile 没有完整 bin。
+
 response-derived 59-bin mask 的生成不读取 EoR truth。后验影响评估显示它只保留 64-bin
 target injected-EoR 功率的 0.906\%；这个比例不是排除依据，但说明本 correction 的可用
 区域在当前 simulation 中几乎没有科学价值。因此仍不晋级 16wide 或 noise。最终产品必须
