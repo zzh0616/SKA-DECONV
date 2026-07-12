@@ -1,7 +1,9 @@
 # PS2D v2：逐 Fourier mode 选窗与双产品分箱设计
 
-状态：核心实现与 8 频 dirty-EoR 闭环已通过；现有 nuisance estimator 尚未完成 v2
-迁移，因此暂不继续其科学参数测试。
+状态：核心实现、8 频 dirty-EoR 闭环以及 identity/pure-EoR estimator 迁移均已通过。
+当前 compiled nuisance projector 在稳定 support 上劣于 raw foreground avoidance，已按
+停止门终止于 8 频无噪声阶段。完整结果见
+[`ps2d_v2_estimator_validation_results.md`](ps2d_v2_estimator_validation_results.md)。
 
 ## 1. 设计决定
 
@@ -150,7 +152,7 @@ UV 边界；新 science edges 从 UV support 起切后，只剩两个真正由 w
 demean、taper、归一化和布局的 analysis-contract hash 为
 `ce60b514464478c8d5543850805cc5f417f2bcae43f192e42adec06381bd8e64`。
 
-## 8. 估计器迁移步骤
+## 8. 估计器迁移步骤与完成状态
 
 1. 用 v2 layout 的 `selected_mode_indices` 和 `selected_mode_bands` 重新构造 science
    signal covariance/projectors；不能先形成 legacy PS2D 再 mask。
@@ -167,10 +169,15 @@ demean、taper、归一化和布局的 analysis-contract hash 为
 7. `powerspec.py` 和旧 `all_modes` config 仅保留历史复现。任何旧结果若未记录 v2
    analysis-contract hash，都不得与新 science product 合并排名。
 
+上述 1--5 已实现并闭环。估计器使用独立 full/science/calibration-source 布局，完整
+source basis 由 32 个 science bands 和 146 个互斥补集 bands 构成，覆盖全部 524,288
+个 FFT modes。冻结 estimator-contract hash 为
+`7771237e46a5a866ebe7fb988a7f5b4963a76c80d000b1d1248213f39aa29e58`。
+第 6 步未启动，因为 compiled nuisance 候选没有通过 8wide 无噪声晋级门。
+
 ## 9. 暂停与验收规则
 
-在 estimator 完成上述迁移前，暂停新的 optimizer、prior、bin-removal 和频率扩展测试。
-迁移至少必须通过：
+迁移必须通过：
 
 1. 单元测试：原生 $k_\parallel$、Nyquist、右边界、部分 bin、独立 mode count、Parseval、
    auto/cross 同归一化；
@@ -180,5 +187,12 @@ demean、taper、归一化和布局的 analysis-contract hash 为
 4. pure-EoR closure：不允许 estimator 在无 foreground 时产生大于预登记容差的 transfer bias；
 5. truth blindness：窗口、support 和停止条件不读取注入 EoR 真值。
 
-只有这些门通过后，才重新评估 nuisance-hardened/QML 路线是否改善复杂 operator 后的
-可识别区域。
+这些 identity 门已全部通过：identity transfer 最大误差 $3.35\times10^{-15}$，pure-EoR
+L2 为 $1.49\times10^{-15}$，power ratio 为 1。Hann taper 的完整解析 source window 与
+64-probe Monte Carlo 结果一致，row-max 差异中位数/最大值为 0.00233/0.01253。
+
+随后进行的 control-only compiled nuisance 测试没有晋级。在 32/64-probe 稳定交集的
+17 bands 上，current raw L2 为 0.00896，row-normalized corrected L2 为 0.03659；
+pure-EoR L2/power ratio 为 0.04271/0.97630。$10^{-6}$--$10^{-4}$ 的弱 ridge 也均未超过
+raw baseline。因此不继续 16wide、noise/split 或 full-Fisher 扩展；详细数值和解释见
+[`ps2d_v2_estimator_validation_results.md`](ps2d_v2_estimator_validation_results.md)。
