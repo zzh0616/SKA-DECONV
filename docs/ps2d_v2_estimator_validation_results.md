@@ -1,8 +1,9 @@
 # PS2D v2 estimator 迁移与无噪声验证结果
 
-状态：identity/pure-EoR 链条通过；当前 compiled nuisance projector 未通过相对 raw
-foreground avoidance 的晋级门，因此停止在 8 频无噪声阶段，不运行 16 频、噪声、split
-cross-power 或 full-Fisher 扩展。
+状态：identity/pure-EoR 链条通过；control-only compiled nuisance projector 仍被拒绝。
+随后独立实现的 reduced full-covariance sky-operator QML 已在 8 频无噪声、6 个预登记
+target bands 上通过初级门槛，但尚未完成 16 频、噪声、split cross-power 或 uncertainty
+扩展，因此不能作为 production power-spectrum 结果。
 
 ## 1. 冻结契约与三套布局
 
@@ -133,3 +134,114 @@ raw foreground avoidance 保留为必须超过的基线。
   `runs/ps2d_v2_estimator_validation_20260712/8wide_identity_probe64_analytic_v2/`；
 - compiled/probe/ridge 结果：
   `runs/compiled_nuisance_ps2d_v2_20260712/`。
+
+## 8. Reduced full-covariance QML 后续测试
+
+### 8.1 方法与 target 冻结
+
+旧 projector 失败后，没有继续调 ridge 或 support threshold，而是实现了一个不同的
+低维完整协方差 screen：
+
+- 从 32 个 mode-first science bands 中预先选取 6 个几何分层 target bands
+  `[4, 10, 16, 7, 13, 19]`；
+- 对 target groups 各保留最多 32 个 conjugate-unique Fourier representatives，对
+  context groups 各保留最多 64 个；real/imag 展开后共有 768 个 real features；
+- 对每个 intrinsic-sky source group 生成单位功率 Gaussian probes，先经过相同的
+  cached stride4/rank64 PCA forward operator，再测量 reduced features，由此估计完整的
+  $B S_b B^\dagger$，而不是只保留对角 PSD；
+- signal covariance 使用 36 个自由幅度：6 个 targets、其余 26 个 science bands
+  分别建模，以及 control、guard、window 外和 radial-Nyquist 四个非 science groups；
+- compiled foreground response 以有限 covariance 进入 weighting matrix。其尺度只在
+  control features 上按 Gaussian NLL 选择；最终结果不减去假设的 foreground covariance
+  bias，即 `bias_subtraction_scope=none`，避免把未知前景幅度当成已知真值；
+- bandpower 使用 full-covariance quadratic/Fisher 解。support 由 Fisher window 和
+  generalized signal fractions 冻结，不读取 injected EoR realization。
+
+这里的 36 个 bandpower/covariance amplitudes 都由当前数据估计，并不是用训练集预先给定
+的 EoR shape。sky probes 只标定线性 operator 对单位 source covariance 的 response。
+
+### 8.2 Operator closure 与早期失败定位
+
+在真实 8 频 EoR OSM sky 上，把完整 sky 通过 cached PCA operator 的输出与 exact dirty
+FITS 比较，得到：
+
+| 闭环诊断 | relative L2 | cosine |
+| --- | ---: | ---: |
+| dirty cube | $2.28596\times10^{-6}$ | $0.999999999997$ |
+| 768 reduced features | $2.63086\times10^{-6}$ | $0.999999999997$ |
+
+因此 rank64 PCA proxy 在这个测试上的 forward closure 足够准确。相反，最初只建模 6 个
+target covariances 时，target-only features 与 exact features 的 relative L2 为
+`0.69366`，遗漏 context 的 feature norm 是 target contribution 的 `0.93673`。这解释了
+为何最早的 full-covariance 结果很差：问题是 taper/operator 混合后遗漏了大幅 signal
+context，而不是 forward operator 数值错误。
+
+### 8.3 单视图、无真值选参和 controls
+
+第一视图使用固定 feature seed `20260712`。sample covariance 向 diagonal shrink 的候选
+只取预先固定的 `0.25/0.5/0.75/1.0`。选择指标为当前 observed feature vector 的
+
+$$
+\frac{1}{2}\left[\log\det C + x^\mathsf{T}C^{-1}x\right],
+$$
+
+其 NLL 依次为 `-7018.94/-7022.79/-7017.05/-7009.27`，故选择 `0.5`。选择过程不读取
+foreground truth 或 EoR truth。
+
+| 输入/reference | count-weighted L2 | integrated power ratio |
+| --- | ---: | ---: |
+| pure EoR | 0.25491 | 1.05868 |
+| current | 0.27890 | 1.12394 |
+| C0-$10^{-6}$ | 0.27910 | 1.12474 |
+| oracle | 0.27826 | 1.12307 |
+
+6/6 targets、18,104 个 FFT modes 被保留，held-out probe-ensemble target-row response
+最大单位阵误差为 `0.30137`。按预登记聚合门槛，pure/current 均满足 L2 不超过 0.3、
+integrated power 在 $1\pm0.3$ 内，controls 也没有显示 reference 敏感性。这里的门槛是按
+mode count 加权的整体诊断，并不意味着每个单独 band 的误差都小于 30%。
+
+### 8.4 独立视图与固定多视图平均
+
+为检查 probe/feature realization 稳定性，又以独立 feature seed `20260713` 和独立 sky
+probes 重建完整 36-source bank。它自己的 observed-data NLL 在同一固定网格上选择
+shrinkage `0.75`，但该视图单独失败：pure/current L2 为 `0.62144/0.63891`，功率比为
+`0.96523/0.95864`。这证明单视图 sample covariance 仍有明显 realization variance，不能
+只报告通过的 seed。
+
+随后只组合两个视图各自无真值选择出的估计，并使用预先固定的等权 `0.5/0.5`，不再拟合
+组合权重：
+
+| 输入/reference | count-weighted L2 | integrated power ratio |
+| --- | ---: | ---: |
+| pure EoR | 0.25637 | 1.01195 |
+| current | 0.27458 | 1.04129 |
+
+共同 support 为 6/6，ensemble target-row response 最大误差为 `0.27484`，所有聚合晋级门
+通过。这个结果说明独立 probe views 的平均可以降低 covariance Monte Carlo 方差，但第二
+视图单独失败仍是需要通过增加 probes/频率和独立复制解决的风险。
+
+### 8.5 当前结论与停止边界
+
+本轮只建立了 8wide、无噪声、synthetic auto-power、6-band feasibility。它没有证明：
+
+- map-level EoR recovery；
+- 完整 EoR window 或逐 band 的 30% 精度；
+- thermal-noise bias 已被消除；
+- split cross-power、误差条和 coverage 已校准；
+- 对真实 foreground/calibration mismatch 稳健。
+
+最终 cache 审计只找到 36 GiB 的 stride4/rank64 tmpfs bank，实际包含
+`117.9, 118.3, ..., 120.7 MHz` 八个频率；旧 16wide products 是不同 selected-mask
+契约，不能直接当作本方法的完整 16wide bank。因此没有盲目启动扩频。下一步应先冻结同一
+feature/source/operator contract，补齐 16wide cache 并做独立 replication；通过后再进入
+noise splits、cross-power、Fisher/Monte-Carlo uncertainty 和 coverage tests。
+
+新增复现入口：
+
+- `3dnet/ps2d_v2_full_covariance.py`；
+- `3dnet/ops_scripts/build_ps2d_v2_sky_band_operator_features.py`；
+- `3dnet/ops_scripts/evaluate_ps2d_v2_full_covariance_reduced.py`；
+- `3dnet/ops_scripts/diagnose_ps2d_v2_sky_operator_closure.py`；
+- `3dnet/ops_scripts/select_ps2d_v2_shrinkage_by_data_nll.py`；
+- `3dnet/ops_scripts/combine_ps2d_v2_multiview_estimates.py`；
+- `runs/ps2d_v2_full_covariance_20260712/`。

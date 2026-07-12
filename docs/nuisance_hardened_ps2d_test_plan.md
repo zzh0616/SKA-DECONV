@@ -953,6 +953,36 @@ full Fisher，也没有运行 16wide、thermal noise 或 split cross-power。该
 完整 source-window 数值见
 [`ps2d_v2_estimator_validation_results.md`](ps2d_v2_estimator_validation_results.md)。
 
+### 13.4 不同方法族：reduced full-covariance sky-operator QML
+
+13.3 拒绝的是把 compiled foreground response 作为 control-only mean projector 的候选。
+后续按第 12 节允许的第二种结果路径，实现了一个不同的 covariance-level screen：单位
+intrinsic-sky source bands 先经过 cached forward operator，直接标定 reduced Fourier
+features 上的完整 $B S_b B^\dagger$。目标 signal amplitudes、其他 science-band
+amplitudes 和四个非 science context amplitudes 共同进入 quadratic estimator，因此不再
+把 taper/operator 从 target 外混入的 EoR covariance 当成零。
+
+8wide 无噪声实测先完成 operator closure：cached stride4/rank64 PCA 与 exact dirty-EoR
+在 cube/features 上的 relative L2 为 `2.29e-6/2.63e-6`。原 target-only covariance
+模型的 feature error 却为 `0.694`，所以先修正 source model，而不是继续调 optimizer。
+最终 36-parameter、768-feature 版本在第一视图上以 observed-data Gaussian NLL 从固定
+shrinkage grid 选择 `0.5`，得到 pure/current L2 `0.2549/0.2789`；独立第二视图选择
+`0.75` 但单独失败。两个独立 NLL-selected 视图按固定等权平均后，pure/current L2 为
+`0.2564/0.2746`，integrated power ratio 为 `1.012/1.041`，6/6 target bands 通过聚合门。
+全部选择和 support 均不读取 injected truth。
+
+该结果把计划状态从“当前 full-covariance 方法尚无可辨识性理由”推进为“8wide 低维
+feasibility 通过，但 probe-view 稳定性不足且尚未外推”。不改变原有 production 晋级顺序：
+
+1. 用同一冻结契约做 16wide 独立 replication；
+2. 增加独立 noise/time splits 并只用 cross-power 形成 science estimate；
+3. 校准 Fisher/Monte-Carlo uncertainty、coverage 和 null tests；
+4. 上述步骤通过后才考虑 32 频或 full matrix-free estimator。
+
+本轮没有兼容的完整 16wide stride4/rank64 cache，故没有把旧 selected-mask design 强行
+拼接到新 source-covariance bank。详细数值、复现入口和限制见
+[`ps2d_v2_estimator_validation_results.md`](ps2d_v2_estimator_validation_results.md)。
+
 ## 14. 参考文献
 
 - Liu and Tegmark, A Method for 21 cm Power Spectrum Estimation in the Presence
