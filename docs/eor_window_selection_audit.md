@@ -54,6 +54,11 @@ binning 前逐 mode 过滤，或重新设计与 UV/wedge 边界对齐的 bins。
 
 ## 实现要求
 
+上述要求已在 PS2D v2 的 mode-first 核心和标准 8 频 evaluator 中实现；详细契约、
+闭环数值与 estimator 迁移步骤见
+[`ps2d_v2_mode_first_design.md`](ps2d_v2_mode_first_design.md)。现有 nuisance estimator
+尚未完成迁移，因此旧 `all_modes` 结果只保留为历史复现，不能继续作为新科学测试的输入。
+
 - 在 binning 前逐 mode 判定窗口，并保存每个 band 的 selected-mode fraction。
 - 整 bin estimator 使用 `all_modes` 时必须单独报告 partial bins；它是保守兼容策略，
   不能代替逐-mode estimator。更好的方案是先切 mode，或增加频率数并重新设计与物理
