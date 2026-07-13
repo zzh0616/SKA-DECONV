@@ -4,7 +4,10 @@
 reduced full-covariance sky-operator QML 的早期聚合 PASS 已被严格受控测试撤销：随机
 feature/probe covariance 未收敛，16→32 probes 也没有改善。flat-prior template T0/T1
 mean profile 成功消除了 reference 幅度/倾斜依赖，但逐 band 与跨视图稳定性仍失败。因此
-不运行 64/128 probes、16 频、噪声、split cross-power 或 uncertainty 推广。
+它只保留为诊断。后续无 fixed-template sky-smooth flat-projection screen 同样失败：T0
+欠拟合，T0/T1 在前景远未压净时已经损失 11.5% 目标 EoR 总功率。因此不运行 64/128
+probes、16 频、噪声、split cross-power 或 uncertainty 推广；下一候选改用无固定形态的
+有限 sky-smooth covariance。
 
 ## 1. 冻结契约与三套布局
 
@@ -327,10 +330,11 @@ pure/current aggregate L2 改善为 `0.19950/0.24553`；最大逐 band 偏差仍
 
 ### 9.4 最终决定
 
-保留 flat-prior template T0/T1 profile，作为未来 estimator 的 reference-robust mean
-component；拒绝当前 768 random-feature/sample-covariance QML。其失败不是 forward operator
-closure、foreground reference 幅度或 NLL selector，而是 covariance 与 reduced-feature
-近似本身没有收敛。
+flat-prior fixed-template T0/T1 profile 只保留为 reference-robustness 诊断，不再作为未来
+estimator 的默认 mean component，因为固定 foreground morphology 的假设过强。当前 768
+random-feature/sample-covariance QML 同样被拒绝；其失败不是 forward operator closure、
+foreground reference 幅度或 NLL selector，而是 covariance 与 reduced-feature 近似本身
+没有收敛。
 
 因此不继续：
 
@@ -348,3 +352,44 @@ $B S_b B^\dagger$ actions，并先通过同一受控 8wide 门。新增入口：
 - `3dnet/ops_scripts/evaluate_ps2d_v2_controlled_views_8wide.sh`；
 - `runs/ps2d_v2_controlled_stability_20260713/`；
 - `runs/ps2d_v2_foreground_controls_20260713/`。
+
+## 10. 无模板 sky-smooth nuisance screen
+
+### 10.1 模型与闭环
+
+为了避免 fixed-template 的空间形态先验，新候选直接使用
+$f(\nu,x,y)=\sum_m q_m(\nu)A_m(x,y)$。每个正交 Chebyshev 谱基列对应一张自由
+`512×512` sky map，不使用 foreground reference。T0/T1 名称在这里仅指谱方向的常数和
+线性列。foreground 与 EoR 先相加形成唯一 observed cube，求解过程不读取分量标签。
+
+cached stride4/rank64 operator 直接放入 matrix-free LSQR，adjoint 用同一 forward graph
+的 autograd action。T0 和 T0/T1 dot-product closure 分别为 `0` 与 `4.24e-16`。其系数/
+dirty-data 维数比为 `0.5/1.0`，所以 T0/T1 flat subspace 不存在受保护的维数 null space。
+
+### 10.2 无噪声结果
+
+| 谱空间 | iterations | data residual | observed target L2 / power ratio | pure-EoR target L2 / power ratio |
+| --- | ---: | ---: | ---: | ---: |
+| T0 | 24 | 0.08531 | `7.692e5 / 1.179e6` | `0.03153 / 0.97143` |
+| T0/T1 | 24 | 0.05201 | `2.136e5 / 4.584e5` | `0.12452 / 0.88515` |
+| T0 | 96 | 0.03787 | `1.699e5 / 3.144e5` | 未运行 |
+| T0/T1 | 96 | 0.01971 | `9.002e4 / 1.276e5` | 未运行 |
+
+T0/T1 在前景仍远未压净时已经移除 `11.5%` 的 frozen-target EoR 总功率，最差单 band
+损失 `12.47%`。96 次拟合继续降低 data residual，却只把 observed target L2 降到
+`9.002e4`，不能靠增加迭代补足四至五个数量级。8-probe Hutchinson Jacobi 估计约
+`47.6%` 对角为非正或非有限，结果没有改善，故保持关闭。该 pipeline 是 deterministic
+full-cube solve，不存在 random feature/probe view 选择。
+
+### 10.3 决定
+
+停止 identity-weighted flat hard projection，不晋级更多频率、noise splits 或 cross-power。
+这不否定 template-free sky-smooth nuisance 本身；下一候选改为有限 covariance 或保守
+avoidance limit，只从 control/guard data 估计 slope/curvature variance，并保留 exact
+matrix-free operator actions 与 pure-signal transfer/window gates。不得恢复 fixed morphology
+template。复现入口：
+
+- `3dnet/ps2d_v2_sky_smooth.py`；
+- `3dnet/ops_scripts/evaluate_template_free_sky_smooth_projection.py`；
+- `3dnet/ops_scripts/run_template_free_sky_smooth_projection_8wide.sh`；
+- `runs/template_free_sky_smooth_20260713/`。
