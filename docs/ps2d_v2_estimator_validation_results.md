@@ -6,8 +6,10 @@ feature/probe covariance 未收敛，16→32 probes 也没有改善。flat-prior
 mean profile 成功消除了 reference 幅度/倾斜依赖，但逐 band 与跨视图稳定性仍失败。因此
 它只保留为诊断。后续无 fixed-template sky-smooth flat-projection screen 同样失败：T0
 欠拟合，T0/T1 在前景远未压净时已经损失 11.5% 目标 EoR 总功率。因此不运行 64/128
-probes、16 频、噪声、split cross-power 或 uncertainty 推广；下一候选改用无固定形态的
-有限 sky-smooth covariance。
+probes、16 频、噪声、split cross-power 或 uncertainty 推广。后续无固定形态的有限
+sky-smooth covariance MAP screen 也已完成：guard-only selector 退化到近似 flat 的低-ridge
+极限，前景残留仍高约六个数量级。因此下一候选只能改为 likelihood-level covariance
+marginalization 或保守 avoidance。
 
 ## 1. 冻结契约与三套布局
 
@@ -393,3 +395,41 @@ template。复现入口：
 - `3dnet/ops_scripts/evaluate_template_free_sky_smooth_projection.py`；
 - `3dnet/ops_scripts/run_template_free_sky_smooth_projection_8wide.sh`；
 - `runs/template_free_sky_smooth_20260713/`。
+
+## 11. 无模板有限协方差 MAP screen
+
+### 11.1 目标与隔离
+
+有限协方差候选保留自由 sky maps，目标为
+$\|F_{\rm control}(BQa-d)\|_2^2+\lambda\sum_m\|a_m/\tau_m\|_2^2$。它没有固定
+foreground morphology；`tau_m` 只给谱列 map 的相对有限方差。control 使用 51,431 个
+复数 native-$k_\parallel$ index-0 modes，guard 使用 102,862 个互斥 index-1 modes，
+science modes 不参与 fit/selection。完整 feature action 的 adjoint error 最大 `1.55e-15`。
+
+### 11.2 Guard-only 网格
+
+T0/T1 等方差 ridge `1e-8/1e-4/1/1e2/1e3/1e4` 的 guard residual 为
+`0.0543986/0.0543986/0.0544118/0.0602718/0.148693/0.458009`。低端两点相对差
+`2.33e-8`，满足 `1e-6` plateau stop；入选项是近似 flat 的低-ridge 极限。
+
+`tau1/tau0=1/0.3/0.1/0.03` 没有改善 guard。加入 T2 后，四档
+`tau2/tau0=1/0.3/0.1/0.03` 的 guard scores 为
+`0.0997902/0.0556316/0.0544600/0.0544111`；曲率方差只能在趋零时回到 T0/T1 极限，
+没有被 selector 选择。整个选择过程不读取 foreground/EoR truth。
+
+### 11.3 Transfer 与停止门
+
+冻结入选项 T0/T1、`tau=[1,1]`、ridge `1e-8`、12 iter 的 pure-EoR target L2/power ratio
+为 `0.059495/0.945330`，最大单 band 误差 `0.059579`。但 observed target L2 为
+`9.851e5`，foreground residual target power 是 EoR 的 `1.425e6` 倍。非入选 ridge-100
+诊断的 pure 指标为 `0.056190/0.948382`，foreground ratio 仍为 `1.398e6`。
+
+因此停止 control-trained finite-Gaussian MAP subtraction，不运行扩频、noise split 或
+cross-power。该结论不排除 likelihood-level nuisance-covariance marginalization，但明确
+排除继续调当前 MAP foreground cube 后直接扣除的路线。复现入口：
+
+- `3dnet/ps2d_v2_sky_smooth.py`；
+- `3dnet/ops_scripts/evaluate_template_free_sky_smooth_finite_covariance.py`；
+- `3dnet/ops_scripts/select_template_free_finite_covariance.py`；
+- `3dnet/ops_scripts/run_template_free_sky_smooth_finite_covariance_8wide.sh`；
+- `runs/template_free_sky_smooth_finite_covariance_20260713/`。
